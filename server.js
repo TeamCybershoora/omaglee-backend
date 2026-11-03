@@ -7,8 +7,13 @@ import path from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const WEB_DIR = path.resolve(__dirname, '..', 'omaglee-web');
-const ADMIN_DIR = path.resolve(__dirname, '..', 'omaglee-admin');
+const WEB_DIR = fs.existsSync(path.resolve(__dirname, 'web'))
+  ? path.resolve(__dirname, 'web')
+  : path.resolve(__dirname, '..', 'omaglee-web');
+
+const ADMIN_DIR = fs.existsSync(path.resolve(__dirname, 'admin'))
+  ? path.resolve(__dirname, 'admin')
+  : path.resolve(__dirname, '..', 'omaglee-admin');
 
 // Automatically load .env file into process.env if present
 try {

@@ -1,0 +1,28 @@
+#!/usr/bin/env php
+<?php
+
+use Illuminate\Foundation\Application;
+
+define('LARAVEL_START', microtime(true));
+
+// Register the Composer Autoloader...
+if (file_exists($maintenance = __DIR__.'/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+if (file_exists(__DIR__.'/vendor/autoload.php')) {
+    require __DIR__.'/vendor/autoload.php';
+}
+
+// Bootstrap Laravel and handle the command...
+if (file_exists(__DIR__.'/bootstrap/app.php')) {
+    $app = require_once __DIR__.'/bootstrap/app.php';
+    if ($app instanceof Application) {
+        $status = $app->handleCommand(new Symfony\Component\Console\Input\ArgvInput);
+        exit($status);
+    }
+}
+
+echo "Omaglee Backend Artisan (Phase 1 Foundation)\n";
+echo "Run 'composer install' to install vendor packages and activate full CLI runtime.\n";
+exit(0);

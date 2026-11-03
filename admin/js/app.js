@@ -6,8 +6,11 @@
 (function () {
   'use strict';
 
-  // 1. Dynamic API Host
-  const BACKEND_URL = window.location.origin;
+  // 1. Dynamic API Host with Production Render Backend
+  const RENDER_BACKEND_URL = 'https://omaglee-backend-1.onrender.com';
+  const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? (window.location.port === '8000' ? window.location.origin : RENDER_BACKEND_URL)
+    : (window.location.origin.includes('onrender.com') ? window.location.origin : RENDER_BACKEND_URL);
   const API_URL = `${BACKEND_URL}/api`;
 
   // 2. State

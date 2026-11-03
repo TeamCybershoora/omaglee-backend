@@ -6,8 +6,11 @@
 (function () {
   'use strict';
 
-  // 1. Dynamic Host Configuration (works seamlessly on localhost, Wi-Fi IP, and custom ports)
-  const BACKEND_URL = window.location.origin;
+  // 1. Dynamic Host Configuration with Production Render Backend
+  const RENDER_BACKEND_URL = 'https://omaglee-backend-1.onrender.com';
+  const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? (window.location.port === '8000' ? window.location.origin : RENDER_BACKEND_URL)
+    : (window.location.origin.includes('onrender.com') ? window.location.origin : RENDER_BACKEND_URL);
   const API_URL = `${BACKEND_URL}/api`;
   const GOOGLE_CLIENT_ID = '860788640625-qjs1imss7vs50i9on8rgs0hq0on5vohh.apps.googleusercontent.com';
 

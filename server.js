@@ -7,13 +7,6 @@ import path from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const WEB_DIR = fs.existsSync(path.resolve(__dirname, 'web'))
-  ? path.resolve(__dirname, 'web')
-  : path.resolve(__dirname, '..', 'omaglee-web');
-
-const ADMIN_DIR = fs.existsSync(path.resolve(__dirname, 'admin'))
-  ? path.resolve(__dirname, 'admin')
-  : path.resolve(__dirname, '..', 'omaglee-admin');
 
 // Automatically load .env file into process.env if present
 try {
@@ -420,183 +413,9 @@ function matchParticipants(session) {
   };
 }
 
-// MIME Types Map for Static Assets
-const MIME_TYPES = {
-  '.html': 'text/html; charset=UTF-8',
-  '.css': 'text/css; charset=UTF-8',
-  '.js': 'application/javascript; charset=UTF-8',
-  '.mjs': 'application/javascript; charset=UTF-8',
-  '.json': 'application/json; charset=UTF-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.webp': 'image/webp',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.mp3': 'audio/mpeg',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.txt': 'text/plain; charset=UTF-8',
-};
-
-function serveFile(res, filePath) {
-  try {
-    const stat = fs.statSync(filePath);
-    if (stat.isDirectory()) {
-      const indexFile = path.join(filePath, 'index.html');
-      if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
-        return serveFile(res, indexFile);
-      }
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
-      res.end('404 Not Found');
-      return true;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      'Content-Length': stat.size,
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
-    });
-
-    const readStream = fs.createReadStream(filePath);
-    readStream.pipe(res);
-    return true;
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
-      res.end('404 Not Found');
-      return true;
-    }
-    res.writeHead(500, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('500 Internal Server Error');
-    return true;
-  }
-}
-
-function handleStaticRequest(req, res, pathname) {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.writeHead(405, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('405 Method Not Allowed');
-    return;
-  }
-
-  // Security check: block hidden files, directory traversal, node_modules, and sensitive configs
-  if (/(^|[/\\])\.|\.\./.test(pathname) || /%2e%2e/i.test(req.url) || /package(-lock)?\.json|tsconfig\.json|node_modules/i.test(pathname)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('403 Forbidden: Protected Resource');
-    return;
-  }
-
-  // A. Admin Panel: /admin or /admin/...
-  if (pathname === '/admin') {
-    // Redirect /admin to /admin/ so relative assets resolve properly
-    res.writeHead(302, { 'Location': '/admin/' });
-    res.end();
-    return;
-  }
-
-  if (pathname.startsWith('/admin/')) {
-    const rawSub = pathname.slice('/admin/'.length);
-    if (!rawSub || rawSub === 'index.html') {
-      return serveFile(res, path.join(ADMIN_DIR, 'index.html'));
-    }
-
-    let decoded = '';
-    try {
-      decoded = decodeURIComponent(rawSub);
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'text/plain; charset=UTF-8' });
-      res.end('400 Bad Request');
-      return;
-    }
-
-    const safeRelative = path.normalize(decoded).replace(/^(\.\.[\/\\])+/, '');
-    const targetFile = path.resolve(ADMIN_DIR, safeRelative);
-
-    // Prevent directory traversal
-    if (!targetFile.startsWith(ADMIN_DIR)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=UTF-8' });
-      res.end('403 Forbidden: Access Denied');
-      return;
-    }
-
-    if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
-      return serveFile(res, targetFile);
-    }
-
-    // Check in ADMIN_DIR/public
-    const publicFile = path.resolve(ADMIN_DIR, 'public', safeRelative);
-    if (publicFile.startsWith(ADMIN_DIR) && fs.existsSync(publicFile) && fs.statSync(publicFile).isFile()) {
-      return serveFile(res, publicFile);
-    }
-
-    // If it has a file extension, it was an asset request that does not exist -> 404
-    if (path.extname(targetFile)) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
-      res.end('404 Not Found');
-      return;
-    }
-
-    // Direct navigation / SPA fallback for /admin/*
-    return serveFile(res, path.join(ADMIN_DIR, 'index.html'));
-  }
-
-  // B. Public Website: / and all other routes
-  if (pathname === '/' || pathname === '/index.html') {
-    return serveFile(res, path.join(WEB_DIR, 'index.html'));
-  }
-
-  let decodedWeb = '';
-  try {
-    decodedWeb = decodeURIComponent(pathname.slice(1));
-  } catch {
-    res.writeHead(400, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('400 Bad Request');
-    return;
-  }
-
-  const safeWebRel = path.normalize(decodedWeb).replace(/^(\.\.[\/\\])+/, '');
-  const targetWebFile = path.resolve(WEB_DIR, safeWebRel);
-
-  // Prevent directory traversal
-  if (!targetWebFile.startsWith(WEB_DIR)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('403 Forbidden: Access Denied');
-    return;
-  }
-
-  if (fs.existsSync(targetWebFile) && fs.statSync(targetWebFile).isFile()) {
-    return serveFile(res, targetWebFile);
-  }
-
-  // Check in WEB_DIR/public
-  const publicWebFile = path.resolve(WEB_DIR, 'public', safeWebRel);
-  if (publicWebFile.startsWith(WEB_DIR) && fs.existsSync(publicWebFile) && fs.statSync(publicWebFile).isFile()) {
-    return serveFile(res, publicWebFile);
-  }
-
-  // If it has an extension, it's a missing asset -> 404
-  if (path.extname(targetWebFile)) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
-    res.end('404 Not Found');
-    return;
-  }
-
-  // Direct navigation / SPA fallback for public website (/chat, /about, /terms, etc.)
-  return serveFile(res, path.join(WEB_DIR, 'index.html'));
-}
-
 const server = http.createServer((req, res) => {
   totalApiRequests++;
-  // CORS headers
+  // CORS headers for all incoming requests (supports any web or admin frontend origin)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Participant-Token, X-Participant-ID, X-Session-UUID, X-Session-Token');
@@ -610,9 +429,34 @@ const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname || '/';
 
-  // Static File Serving (Public Website at / and Admin Panel at /admin)
-  if (!pathname.startsWith('/api')) {
-    handleStaticRequest(req, res, pathname);
+  // Root status response for pure backend API server
+  if (pathname === '/' || pathname === '/api') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      service: 'Omaglee Backend API & WebRTC Signaling Server',
+      status: 'online',
+      version: '1.0.0',
+      timestamp: new Date().toISOString(),
+      endpoints: {
+        health: '/api/health',
+        system_status: '/api/system/status',
+        matchmaking_session: '/api/matchmaking/session',
+        matchmaking_queue: '/api/matchmaking/queue',
+        matchmaking_status: '/api/matchmaking/status',
+        signaling: '/api/signaling/message',
+        admin_login: '/api/admin/auth/login'
+      }
+    }, null, 2));
+    return;
+  }
+
+  // Pure API router: block any unknown non-API routes with clean JSON 404
+  if (!pathname.startsWith('/api/')) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Not Found',
+      message: `Cannot ${req.method} ${pathname}. This is a standalone Omaglee Backend API service.`
+    }, null, 2));
     return;
   }
 
@@ -2179,7 +2023,9 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('Development Server Started\n');
-  console.log(`Website: http://localhost:${PORT}/`);
-  console.log(`Admin:   http://localhost:${PORT}/admin\n`);
+  console.log('\n======================================================');
+  console.log(` Omaglee Backend API Server Started on Port ${PORT}`);
+  console.log(` Service:   http://localhost:${PORT}/`);
+  console.log(` Health:    http://localhost:${PORT}/api/health`);
+  console.log('======================================================\n');
 });

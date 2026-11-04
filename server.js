@@ -192,8 +192,8 @@ function verifyToken(matchId, participantId, token) {
 }
 
 function validateAnonymousSession(req, json) {
-  const sessionUuid = req.headers['x-session-uuid'] || json.sessionUuid;
-  const sessionToken = req.headers['x-session-token'] || json.sessionToken;
+  const sessionUuid = req.headers['x-session-uuid'] || (json && json.sessionUuid);
+  const sessionToken = req.headers['x-session-token'] || (json && json.sessionToken);
 
   if (!sessionUuid || !sessionToken) return null;
   const session = sessions.get(sessionUuid);
@@ -658,8 +658,8 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    // POST /api/matchmaking/start
-    if (pathname === '/api/matchmaking/start' && req.method === 'POST') {
+    // POST /api/matchmaking/start or /api/matchmaking/queue
+    if ((pathname === '/api/matchmaking/start' || pathname === '/api/matchmaking/queue') && req.method === 'POST') {
       if (appSettings.maintenanceMode) {
         res.writeHead(503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -742,6 +742,9 @@ const server = http.createServer((req, res) => {
       if (queueEntry.status === 'matched' && queueEntry.matchId) {
         const match = matches.get(queueEntry.matchId);
         if (match && match.status !== 'ended') {
+          const idx = waitingQueue.indexOf(queueEntry);
+          if (idx !== -1) waitingQueue.splice(idx, 1);
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: true,
@@ -790,6 +793,53 @@ const server = http.createServer((req, res) => {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: 'Matchmaking search cancelled.' }));
+      return;
+    }
+
+    // POST /api/matchmaking/leave
+    if (pathname === '/api/matchmaking/leave' && req.method === 'POST') {
+      const session = validateAnonymousSession(req, json);
+      const matchId = (json && json.matchId) || (session && session.activeMatchId);
+      if (matchId) {
+        const match = matches.get(matchId);
+        if (match && match.status !== 'ended') {
+          match.status = 'ended';
+          match.endedReason = 'user_leave';
+          match.endedAt = Date.now();
+          match.messages.push({
+            id: `sig_${Date.now()}`,
+            match_id: matchId,
+            sender_id: session ? session.sessionUuid : 'unknown',
+            type: 'match.ended',
+            payload: { reason: 'user_leave' },
+            timestamp: Date.now() / 1000,
+          });
+
+          const pASession = sessions.get(match.participantAId);
+          const pBSession = sessions.get(match.participantBId);
+          if (pASession) pASession.activeMatchId = null;
+          if (pBSession) pBSession.activeMatchId = null;
+        }
+      }
+      if (session) {
+        session.activeMatchId = null;
+        session.status = 'idle';
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Left match.' }));
+      return;
+    }
+
+    // POST /api/matchmaking/heartbeat
+    if (pathname === '/api/matchmaking/heartbeat' && req.method === 'POST') {
+      const session = validateAnonymousSession(req, json);
+      if (session) {
+        session.lastSeenAt = Date.now();
+        const qEntry = waitingQueue.find(q => q.sessionUuid === session.sessionUuid);
+        if (qEntry) qEntry.lastHeartbeatAt = Date.now();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 
@@ -1947,7 +1997,7 @@ const server = http.createServer((req, res) => {
     }
 
     // Poll messages (sync fallback)
-    if (pathname === '/api/signaling/messages/poll') {
+    if (pathname === '/api/signaling/messages' || pathname === '/api/signaling/messages/poll') {
       const query = parsedUrl.query;
       const matchId = query.matchId || query.roomId || json.matchId || json.roomId;
       const participantId = query.participantId || json.participantId;
@@ -2029,3 +2079,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` Health:    http://localhost:${PORT}/api/health`);
   console.log('======================================================\n');
 });
+
+export default server;

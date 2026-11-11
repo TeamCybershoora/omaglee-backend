@@ -314,23 +314,28 @@ function matchParticipants(session) {
   const now = Date.now();
   const heartbeatCutoff = now - 30000;
 
-  // Clean up any stale or previous entries for this session
+  // Clean up stale, expired, or previous entries for this session
   for (let i = waitingQueue.length - 1; i >= 0; i--) {
-    if (waitingQueue[i].sessionUuid === session.sessionUuid) {
+    const entry = waitingQueue[i];
+    const entrySession = sessions.get(entry.sessionUuid);
+    const isStale = !entrySession ||
+      (entrySession.expiresAt && entrySession.expiresAt <= now) ||
+      entry.lastHeartbeatAt < heartbeatCutoff ||
+      entry.expiresAt <= now;
+    if (entry.sessionUuid === session.sessionUuid || (entry.status === 'waiting' && (isStale || entrySession.activeMatchId))) {
       waitingQueue.splice(i, 1);
     }
   }
 
-  // Find eligible waiting stranger (excluding blocked pairs and banned identities)
-  const strangerIndex = waitingQueue.findIndex(
-    q => q.status === 'waiting' &&
-         q.sessionUuid !== session.sessionUuid &&
-         !blockedUsers.has(`${session.sessionUuid}:${q.sessionUuid}`) &&
-         !blockedUsers.has(`${q.sessionUuid}:${session.sessionUuid}`) &&
-         !isSessionBanned(q.sessionUuid) &&
-         q.lastHeartbeatAt >= heartbeatCutoff &&
-         q.expiresAt > now
-  );
+  // Find eligible waiting stranger (excluding blocked pairs, banned identities, and active matches)
+  const strangerIndex = waitingQueue.findIndex((q) => {
+    if (q.status !== 'waiting' || q.sessionUuid === session.sessionUuid) return false;
+    const s = sessions.get(q.sessionUuid);
+    if (!s || (s.expiresAt && s.expiresAt <= now) || s.activeMatchId) return false;
+    if (blockedUsers.has(`${session.sessionUuid}:${q.sessionUuid}`) || blockedUsers.has(`${q.sessionUuid}:${session.sessionUuid}`)) return false;
+    if (isSessionBanned(q.sessionUuid)) return false;
+    return q.lastHeartbeatAt >= heartbeatCutoff && q.expiresAt > now;
+  });
 
   if (strangerIndex !== -1) {
     const strangerQueue = waitingQueue[strangerIndex];
@@ -1984,7 +1989,7 @@ const server = http.createServer((req, res) => {
         type,
         payload,
         sequence: assignedSeq,
-        timestamp: timestamp || (now / 1000),
+        timestamp: now / 1000,
       };
 
       match.messages.push(msg);

@@ -327,11 +327,13 @@ function matchParticipants(session) {
     }
   }
 
-  // Find eligible waiting stranger (excluding blocked pairs, banned identities, and active matches)
+  // Find eligible waiting stranger (excluding blocked pairs, banned identities, active matches, and recently skipped partners)
   const strangerIndex = waitingQueue.findIndex((q) => {
     if (q.status !== 'waiting' || q.sessionUuid === session.sessionUuid) return false;
     const s = sessions.get(q.sessionUuid);
     if (!s || (s.expiresAt && s.expiresAt <= now) || s.activeMatchId) return false;
+    if (session.lastSkippedUuid === q.sessionUuid && session.lastSkipUntil && session.lastSkipUntil > now) return false;
+    if (s.lastSkippedUuid === session.sessionUuid && s.lastSkipUntil && s.lastSkipUntil > now) return false;
     if (blockedUsers.has(`${session.sessionUuid}:${q.sessionUuid}`) || blockedUsers.has(`${q.sessionUuid}:${session.sessionUuid}`)) return false;
     if (isSessionBanned(q.sessionUuid)) return false;
     return q.lastHeartbeatAt >= heartbeatCutoff && q.expiresAt > now;
@@ -829,6 +831,7 @@ const server = http.createServer((req, res) => {
       if (session) {
         session.activeMatchId = null;
         session.status = 'idle';
+        session.lastSkipUntil = 0;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: 'Left match.' }));
@@ -876,11 +879,20 @@ const server = http.createServer((req, res) => {
           timestamp: Date.now() / 1000,
         });
 
-        // Clear active match for both
+        // Clear active match for both & set brief skip cooldown so they don't boomerang immediately
         const pASession = sessions.get(match.participantAId);
         const pBSession = sessions.get(match.participantBId);
-        if (pASession) pASession.activeMatchId = null;
-        if (pBSession) pBSession.activeMatchId = null;
+        const skipCooldownUntil = Date.now() + 8000;
+        if (pASession) {
+          pASession.activeMatchId = null;
+          pASession.lastSkippedUuid = match.participantBId;
+          pASession.lastSkipUntil = skipCooldownUntil;
+        }
+        if (pBSession) {
+          pBSession.activeMatchId = null;
+          pBSession.lastSkippedUuid = match.participantAId;
+          pBSession.lastSkipUntil = skipCooldownUntil;
+        }
       }
 
       session.activeMatchId = null;

@@ -327,17 +327,24 @@ function matchParticipants(session) {
     }
   }
 
-  // Find eligible waiting stranger (excluding blocked pairs, banned identities, active matches, and recently skipped partners)
-  const strangerIndex = waitingQueue.findIndex((q) => {
+  const isEligible = (q, allowRecentlySkipped) => {
     if (q.status !== 'waiting' || q.sessionUuid === session.sessionUuid) return false;
     const s = sessions.get(q.sessionUuid);
     if (!s || (s.expiresAt && s.expiresAt <= now) || s.activeMatchId) return false;
-    if (session.lastSkippedUuid === q.sessionUuid && session.lastSkipUntil && session.lastSkipUntil > now) return false;
-    if (s.lastSkippedUuid === session.sessionUuid && s.lastSkipUntil && s.lastSkipUntil > now) return false;
+    if (!allowRecentlySkipped) {
+      if (session.lastSkippedUuid === q.sessionUuid && session.lastSkipUntil && session.lastSkipUntil > now) return false;
+      if (s.lastSkippedUuid === session.sessionUuid && s.lastSkipUntil && s.lastSkipUntil > now) return false;
+    }
     if (blockedUsers.has(`${session.sessionUuid}:${q.sessionUuid}`) || blockedUsers.has(`${q.sessionUuid}:${session.sessionUuid}`)) return false;
     if (isSessionBanned(q.sessionUuid)) return false;
     return q.lastHeartbeatAt >= heartbeatCutoff && q.expiresAt > now;
-  });
+  };
+
+  // Prefer a different stranger first; if nobody else is available, fall back to any eligible waiting user
+  let strangerIndex = waitingQueue.findIndex(q => isEligible(q, false));
+  if (strangerIndex === -1) {
+    strangerIndex = waitingQueue.findIndex(q => isEligible(q, true));
+  }
 
   if (strangerIndex !== -1) {
     const strangerQueue = waitingQueue[strangerIndex];
